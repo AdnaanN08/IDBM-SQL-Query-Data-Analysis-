@@ -3,18 +3,58 @@ import csv
 import os
 import argparse
 import pandas as pd
-from pick import pick
+import json
 
 def create_connection(db_path):
     conn = sqlite3.connect(db_path)
     return conn
 
-def import_csv_to_sqlite(db_path, csv_path, table_name, if_exists='replace'):
+def clean_genres(genres_str):
+    try:
+        genres = json.loads(genres_str.replace("'", '"'))
+        return ', '.join([g['name'] for g in genres])
+    except Exception:
+        return ''
+
+def clean_cast(cast_str, n=3):
+    try:
+        cast = json.loads(cast_str.replace("'", '"'))
+        return ', '.join([c['name'] for c in cast[:n]])
+    except Exception:
+        return ''
+
+def clean_crew(crew_str, job='Director'):
+    try:
+        crew = json.loads(crew_str.replace("'", '"'))
+        names = [c['name'] for c in crew if c.get('job') == job]
+        return ', '.join(names)
+    except Exception:
+        return ''
+
+def import_and_clean_movies(db_path, csv_path, table_name='movies'):
     df = pd.read_csv(csv_path)
+    # Clean genres
+    df['genres'] = df['genres'].apply(clean_genres)
+    # Keep only useful columns
+    useful_cols = ['id', 'title', 'genres', 'release_date', 'popularity', 'vote_average', 'vote_count', 'runtime', 'budget', 'revenue']
+    df = df[useful_cols]
     conn = sqlite3.connect(db_path)
-    df.to_sql(table_name, conn, if_exists=if_exists, index=False)
+    df.to_sql(table_name, conn, if_exists='replace', index=False)
     conn.close()
-    print(f"Imported {csv_path} to table '{table_name}' in {db_path}")
+    print(f"Imported and cleaned {csv_path} to table '{table_name}' in {db_path}")
+
+def import_and_clean_credits(db_path, csv_path, table_name='credits'):
+    df = pd.read_csv(csv_path)
+    # Clean cast and crew
+    df['main_cast'] = df['cast'].apply(lambda x: clean_cast(x, n=3))
+    df['director'] = df['crew'].apply(clean_crew)
+    # Keep only useful columns
+    useful_cols = ['movie_id', 'title', 'main_cast', 'director']
+    df = df[useful_cols]
+    conn = sqlite3.connect(db_path)
+    df.to_sql(table_name, conn, if_exists='replace', index=False)
+    conn.close()
+    print(f"Imported and cleaned {csv_path} to table '{table_name}' in {db_path}")
 
 def get_tables(conn):
     cur = conn.cursor()
@@ -30,10 +70,10 @@ def crud_menu(conn):
     while True:
         print("\nCRUD Menu:")
         print("1. Create (Insert Row)")
-        print("2. Read (Query Table)")
+        print("2. Read (Run SQL Query)")
         print("3. Update Row")
         print("4. Delete Row")
-        print("0. Back to Main Menu")
+        print("0. Exit")
         choice = input("Select an option: ")
         if choice == '1':
             table = input("Enter table name: ")
@@ -51,9 +91,16 @@ def crud_menu(conn):
             except Exception as e:
                 print(f"Error: {e}")
         elif choice == '2':
-            table = input("Enter table name: ")
+            print("Enter your SQL query (end with an empty line):")
+            lines = []
+            while True:
+                line = input()
+                if line.strip() == '':
+                    break
+                lines.append(line)
+            query = '\n'.join(lines)
             try:
-                df = pd.read_sql_query(f'SELECT * FROM {table} LIMIT 10', conn)
+                df = pd.read_sql_query(query, conn)
                 print(df)
             except Exception as e:
                 print(f"Error: {e}")
@@ -93,55 +140,19 @@ def crud_menu(conn):
 def main():
     parser = argparse.ArgumentParser(description='IMDB Data Management Tool')
     parser.add_argument('--db', type=str, default='data/imdb_db.sqlite', help='Path to SQLite database file')
+    parser.add_argument('--movies', type=str, default='data/tmdb_5000_movies.csv', help='Path to movies CSV')
+    parser.add_argument('--credits', type=str, default='data/tmdb_5000_credits.csv', help='Path to credits CSV')
     args = parser.parse_args()
+    # Auto-import and clean both CSVs
+    import_and_clean_movies(args.db, args.movies)
+    import_and_clean_credits(args.db, args.credits)
     conn = create_connection(args.db)
     while True:
         print("\nIMDB Data Management Menu:")
-        print("1. Import CSV to SQLite Table")
-        print("2. CRUD Operations")
+        print("1. CRUD Operations")
         print("0. Exit")
         choice = input("Select an option: ")
         if choice == '1':
-            # Check for existing CSV files in data folder
-            data_dir = os.path.dirname(args.db)
-            if not data_dir:  # If args.db doesn't contain a directory path
-                data_dir = 'data'
-            
-            csv_files = [f for f in os.listdir(data_dir) if f.endswith('.csv')]
-            
-            if csv_files:
-                try:
-                    options = csv_files + ["Enter another path"]
-                    title = 'Select a CSV file (use arrow keys and Enter to select):'
-                    selected, index = pick(options, title)
-                    
-                    if selected == "Enter another path":
-                        csv_path = input("Enter CSV file path: ")
-                    else:
-                        csv_path = os.path.join(data_dir, selected)
-                except ImportError:
-                    print("\nThe 'pick' library is not installed. Using fallback selection method.")
-                    print("\nExisting CSV files in data folder:")
-                    for i, file in enumerate(csv_files, 1):
-                        print(f"{i}. {file}")
-                    print(f"{len(csv_files) + 1}. Enter another path")
-                    
-                    file_choice = input("\nSelect a file or enter another path (number): ")
-                    try:
-                        file_idx = int(file_choice) - 1
-                        if 0 <= file_idx < len(csv_files):
-                            csv_path = os.path.join(data_dir, csv_files[file_idx])
-                        else:
-                            csv_path = input("Enter CSV file path: ")
-                    except ValueError:
-                        csv_path = input("Enter CSV file path: ")
-            else:
-                print("No CSV files found in data directory.")
-                csv_path = input("Enter CSV file path: ")
-            
-            table_name = input("Enter table name for SQLite: ")
-            import_csv_to_sqlite(args.db, csv_path, table_name)
-        elif choice == '2':
             crud_menu(conn)
         elif choice == '0':
             print("Exiting IMDB Data Management Menu.")
