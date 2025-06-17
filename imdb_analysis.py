@@ -154,7 +154,20 @@ def main():
         choice = input("Select an option: ")
         if choice == '1':
             crud_menu(conn)
-        elif choice == '0':
+        elif choice_str == "Exit":
+            try:
+                confirm = subprocess.run(
+                    ['gum', 'confirm', '--selected.background=212', '--selected.foreground=0', '--affirmative', 'Yes', '--negative', 'No', 'Are you Sure ?'],
+                    text=True
+                )
+                if confirm.returncode != 0:
+                    print("Exit cancelled.")
+                    continue
+            except Exception:
+                ans = input("Are you sure you want to exit? (y/n): ")
+                if ans.lower() not in ('y', 'yes'):
+                    print("Exit cancelled.")
+                    continue
             print("Exiting IMDB Data Management Menu.")
             break
         else:
