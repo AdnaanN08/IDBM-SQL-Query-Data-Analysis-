@@ -3,6 +3,7 @@ import csv
 import os
 import argparse
 import pandas as pd
+from pick import pick
 
 def create_connection(db_path):
     conn = sqlite3.connect(db_path)
@@ -101,7 +102,43 @@ def main():
         print("0. Exit")
         choice = input("Select an option: ")
         if choice == '1':
-            csv_path = input("Enter CSV file path: ")
+            # Check for existing CSV files in data folder
+            data_dir = os.path.dirname(args.db)
+            if not data_dir:  # If args.db doesn't contain a directory path
+                data_dir = 'data'
+            
+            csv_files = [f for f in os.listdir(data_dir) if f.endswith('.csv')]
+            
+            if csv_files:
+                try:
+                    options = csv_files + ["Enter another path"]
+                    title = 'Select a CSV file (use arrow keys and Enter to select):'
+                    selected, index = pick(options, title)
+                    
+                    if selected == "Enter another path":
+                        csv_path = input("Enter CSV file path: ")
+                    else:
+                        csv_path = os.path.join(data_dir, selected)
+                except ImportError:
+                    print("\nThe 'pick' library is not installed. Using fallback selection method.")
+                    print("\nExisting CSV files in data folder:")
+                    for i, file in enumerate(csv_files, 1):
+                        print(f"{i}. {file}")
+                    print(f"{len(csv_files) + 1}. Enter another path")
+                    
+                    file_choice = input("\nSelect a file or enter another path (number): ")
+                    try:
+                        file_idx = int(file_choice) - 1
+                        if 0 <= file_idx < len(csv_files):
+                            csv_path = os.path.join(data_dir, csv_files[file_idx])
+                        else:
+                            csv_path = input("Enter CSV file path: ")
+                    except ValueError:
+                        csv_path = input("Enter CSV file path: ")
+            else:
+                print("No CSV files found in data directory.")
+                csv_path = input("Enter CSV file path: ")
+            
             table_name = input("Enter table name for SQLite: ")
             import_csv_to_sqlite(args.db, csv_path, table_name)
         elif choice == '2':
